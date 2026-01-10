@@ -64,6 +64,30 @@ def get_replacement(date):
     return row[0] if row else None
 
 
+def get_all_replacements():
+    """Получить все замены начиная с сегодняшнего дня"""
+    cursor.execute("""
+    SELECT date, text FROM replacements 
+    WHERE date >= date('now')
+    ORDER BY date
+    """)
+    return cursor.fetchall()
+
+
+def delete_replacement(date):
+    """Удалить замену по дате"""
+    cursor.execute("DELETE FROM replacements WHERE date=?", (date,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def delete_all_old_replacements():
+    """Удалить все старые замены (до сегодняшнего дня)"""
+    cursor.execute("DELETE FROM replacements WHERE date < date('now')")
+    conn.commit()
+    return cursor.rowcount
+
+
 def clear_schedule():
     """Очищает таблицу расписания"""
     cursor.execute("DELETE FROM schedule")
