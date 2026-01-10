@@ -17,9 +17,11 @@ from xlsx_parser import parse_schedule_xlsx, parse_replacements_xlsx
 from keyboards import get_main_menu, get_week_menu, get_replacements_menu, get_delete_replacement_menu 
 from utils import get_week_type, get_week_name, get_opposite_week
 
+# Исправление для Python 3.10+
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+# Создаем event loop
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -138,7 +140,7 @@ async def handle_document(msg: types.Message):
             os.remove(file_path)
 
 
-
+# Обработчики кнопок
 @dp.callback_query_handler(lambda c: c.data == "schedule_today")
 async def show_today_schedule(callback: types.CallbackQuery):
     await callback.answer()
@@ -149,14 +151,14 @@ async def show_today_schedule(callback: types.CallbackQuery):
     week_name = get_week_name(week_type)
     today_date = today.strftime("%Y-%m-%d")
     
-
+    # Проверяем замены
     replacement = get_replacement(today_date)
     if replacement:
         text = f"⚠️ Замены на сегодня ({today.strftime('%d.%m.%Y')}):\n\n{replacement}"
         await callback.message.answer(text, reply_markup=get_main_menu())
         return
     
-
+    # Получаем расписание
     lessons = get_schedule(week_type, weekday)
     
     if not lessons:
@@ -182,14 +184,14 @@ async def show_tomorrow_schedule(callback: types.CallbackQuery):
     week_name = get_week_name(week_type)
     tomorrow_date = tomorrow.strftime("%Y-%m-%d")
     
-
+    # Проверяем замены
     replacement = get_replacement(tomorrow_date)
     if replacement:
         text = f"⚠️ Замены на завтра ({tomorrow.strftime('%d.%m.%Y')}):\n\n{replacement}"
         await callback.message.answer(text, reply_markup=get_main_menu())
         return
     
-
+    # Получаем расписание
     lessons = get_schedule(week_type, weekday)
     
     if not lessons:
@@ -261,7 +263,7 @@ async def show_replacements(callback: types.CallbackQuery):
     
     if not replacements:
         text = "✅ Замен нет"
-
+        # Для админов показываем меню управления
         if callback.from_user.id in ADMINS:
             await callback.message.answer(text, reply_markup=get_replacements_menu())
         else:
@@ -273,7 +275,7 @@ async def show_replacements(callback: types.CallbackQuery):
         date_obj = datetime.strptime(repl_date, "%Y-%m-%d")
         text += f"📅 {date_obj.strftime('%d.%m.%Y')}:\n{repl_text}\n\n"
     
-
+    # Для админов добавляем кнопки управления
     if callback.from_user.id in ADMINS:
         keyboard = InlineKeyboardMarkup(row_width=1)
         keyboard.add(
@@ -320,7 +322,7 @@ async def delete_selected_replacement(callback: types.CallbackQuery):
     if delete_replacement(repl_date):
         await callback.answer("✅ Замена удалена", show_alert=True)
         
-
+        # Показываем обновленный список
         replacements = get_all_replacements()
         if replacements:
             await callback.message.edit_text(
@@ -347,7 +349,7 @@ async def delete_old_replacements_handler(callback: types.CallbackQuery):
     count = delete_all_old_replacements()
     await callback.answer(f"✅ Удалено старых замен: {count}", show_alert=True)
     
-
+    # Обновляем список замен
     await show_replacements(callback)
 
 
