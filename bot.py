@@ -1,35 +1,32 @@
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher import FSMContext
+from aiogram import Bot, Dispatcher, types
 from datetime import date, timedelta, datetime
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import os
 import asyncio
 import sys
+from aiogram.filters import Command
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from aiogram.filters import Command, CommandObject
+from aiogram import F
+from states import ReplaceState
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
 from config import TOKEN, ADMINS
 from db import (init_db, add_user, add_replacement, import_schedule, import_replacements, 
                 get_schedule, get_replacement, get_all_replacements, delete_replacement, 
                 delete_all_old_replacements, clear_replacements)
-from states import ReplaceState
 from scheduler import start_scheduler
 from xlsx_parser import parse_schedule_xlsx, parse_replacements_xlsx
 from keyboards import get_main_menu, get_week_menu, get_replacements_menu, get_delete_replacement_menu 
 from utils import get_week_type, get_week_name, get_opposite_week
 
-# Исправление для Python 3.10+
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+bot = Bot(token=TOKEN)
 
-# Создаем event loop
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
-bot = Bot(TOKEN)
-dp = Dispatcher(bot, storage=MemoryStorage(), loop=loop)
-
-
-@dp.message_handler(commands=["start"])
+@dp.message(Command("start"))
 async def start(msg: types.Message):
     week_type = get_week_type()
     week_name = get_week_name(week_type)
@@ -43,14 +40,14 @@ async def start(msg: types.Message):
     )
 
 
-@dp.message_handler(commands=["menu"])
+@dp.message(Command("menu"))
 async def menu(msg: types.Message):
     week_type = get_week_type()
     week_name = get_week_name(week_type)
     await msg.answer(f"📱 Главное меню\n📅 Текущая неделя: {week_name}", reply_markup=get_main_menu())
 
 
-@dp.message_handler(commands=["week"])
+@dp.message(Command("week"))
 async def check_week(msg: types.Message):
     """Проверить тип текущей недели"""
     week_type = get_week_type()
@@ -68,14 +65,13 @@ async def check_week(msg: types.Message):
         f"Понедельник: {monday.strftime('%d.%m.%Y')}"
     )
 
+@dp.message(F.text.regexp(r"\d{2}:\d{2}"))
+async def handle_time(message: types.Message):
+    add_user(message.from_user.id, message.text)  # Исправлено: message вместо msg
+    await message.answer("✅ Время сохранено", reply_markup=get_main_menu())  # Исправлено
 
-@dp.message_handler(regexp=r"\d{2}:\d{2}")
-async def set_time(msg: types.Message):
-    add_user(msg.from_user.id, msg.text)
-    await msg.answer("✅ Время сохранено", reply_markup=get_main_menu())
 
-
-@dp.message_handler(commands=["replacement"])
+@dp.message(Command("replacement"))
 async def replacement(msg: types.Message):
     if msg.from_user.id not in ADMINS:
         return
@@ -83,7 +79,7 @@ async def replacement(msg: types.Message):
     await ReplaceState.text.set()
 
 
-@dp.message_handler(state=ReplaceState.text)
+@dp.message(ReplaceState.text)
 async def save_replace(msg: types.Message, state: FSMContext):
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
     add_replacement(tomorrow, msg.text)
@@ -91,14 +87,14 @@ async def save_replace(msg: types.Message, state: FSMContext):
     await state.finish()
 
 
-@dp.message_handler(commands=["load_schedule"])
+@dp.message(Command("load_schedule"))
 async def load_schedule_command(msg: types.Message):
     if msg.from_user.id not in ADMINS:
         return
     await msg.answer("📤 Отправьте XLSX файл с расписанием или заменами")
 
 
-@dp.message_handler(content_types=['document'])
+@dp.message(F.document)
 async def handle_document(msg: types.Message):
     if msg.from_user.id not in ADMINS:
         return
@@ -141,7 +137,7 @@ async def handle_document(msg: types.Message):
 
 
 # Обработчики кнопок
-@dp.callback_query_handler(lambda c: c.data == "schedule_today")
+@dp.callback_query(F.data == "schedule_today")
 async def show_today_schedule(callback: types.CallbackQuery):
     await callback.answer()
     
@@ -174,7 +170,7 @@ async def show_today_schedule(callback: types.CallbackQuery):
     await callback.message.answer(text, reply_markup=get_main_menu())
 
 
-@dp.callback_query_handler(lambda c: c.data == "schedule_tomorrow")
+@dp.callback_query(F.data == "schedule_tomorrow")  # Исправлено: должно быть "schedule_tomorrow"
 async def show_tomorrow_schedule(callback: types.CallbackQuery):
     await callback.answer()
     
@@ -207,7 +203,7 @@ async def show_tomorrow_schedule(callback: types.CallbackQuery):
     await callback.message.answer(text, reply_markup=get_main_menu())
 
 
-@dp.callback_query_handler(lambda c: c.data == "schedule_current_week")
+@dp.callback_query(F.data == "schedule_current_week")
 async def show_current_week_menu(callback: types.CallbackQuery):
     await callback.answer()
     week_type = get_week_type()
@@ -219,7 +215,7 @@ async def show_current_week_menu(callback: types.CallbackQuery):
     )
 
 
-@dp.callback_query_handler(lambda c: c.data == "schedule_other_week")
+@dp.callback_query(F.data == "schedule_other_week")
 async def show_other_week_menu(callback: types.CallbackQuery):
     await callback.answer()
     current_week_type = get_week_type()
@@ -232,7 +228,7 @@ async def show_other_week_menu(callback: types.CallbackQuery):
     )
 
 
-@dp.callback_query_handler(lambda c: c.data.startswith("day_"))
+@dp.callback_query(F.data.startswith("day_"))
 async def show_day_schedule(callback: types.CallbackQuery):
     await callback.answer()
     
@@ -255,7 +251,7 @@ async def show_day_schedule(callback: types.CallbackQuery):
     await callback.message.answer(text, reply_markup=get_week_menu(week_type))
 
 
-@dp.callback_query_handler(lambda c: c.data == "replacements")
+@dp.callback_query(F.data == "replacements")
 async def show_replacements(callback: types.CallbackQuery):
     await callback.answer()
     
@@ -277,19 +273,20 @@ async def show_replacements(callback: types.CallbackQuery):
     
     # Для админов добавляем кнопки управления
     if callback.from_user.id in ADMINS:
-        keyboard = InlineKeyboardMarkup(row_width=1)
-        keyboard.add(
-            InlineKeyboardButton("🗑 Удалить замену", callback_data="select_replacement_to_delete"),
-            InlineKeyboardButton("🗑 Удалить старые замены", callback_data="delete_old_replacements"),
-            InlineKeyboardButton("🗑 Очистить все замены", callback_data="clear_all_replacements"),
-            InlineKeyboardButton("◀️ Назад", callback_data="back_to_menu")
-        )
-        await callback.message.answer(text, reply_markup=keyboard)
+        # Используем новую клавиатуру вместо старой
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🗑 Удалить замену", callback_data="select_replacement_to_delete")
+        builder.button(text="🗑 Удалить старые замены", callback_data="delete_old_replacements")
+        builder.button(text="🗑 Очистить все замены", callback_data="clear_all_replacements")
+        builder.button(text="◀️ Назад", callback_data="back_to_menu")
+        builder.adjust(1)
+        
+        await callback.message.answer(text, reply_markup=builder.as_markup())
     else:
         await callback.message.answer(text, reply_markup=get_main_menu())
 
 
-@dp.callback_query_handler(lambda c: c.data == "select_replacement_to_delete")
+@dp.callback_query(F.data == "select_replacement_to_delete")
 async def select_replacement_to_delete(callback: types.CallbackQuery):
     await callback.answer()
     
@@ -309,7 +306,7 @@ async def select_replacement_to_delete(callback: types.CallbackQuery):
     )
 
 
-@dp.callback_query_handler(lambda c: c.data.startswith("del_repl_"))
+@dp.callback_query(F.data.startswith("del_repl_"))
 async def delete_selected_replacement(callback: types.CallbackQuery):
     await callback.answer()
     
@@ -338,7 +335,7 @@ async def delete_selected_replacement(callback: types.CallbackQuery):
         await callback.answer("❌ Не удалось удалить замену", show_alert=True)
 
 
-@dp.callback_query_handler(lambda c: c.data == "delete_old_replacements")
+@dp.callback_query(F.data == "delete_old_replacements")
 async def delete_old_replacements_handler(callback: types.CallbackQuery):
     await callback.answer()
     
@@ -347,13 +344,13 @@ async def delete_old_replacements_handler(callback: types.CallbackQuery):
         return
     
     count = delete_all_old_replacements()
-    await callback.answer(f"✅ Удалено старых замен: {count}", show_alert=True)
+    await callback.answer(f"✅ Удhttps://chatgpt.com/c/673c69a2-92f2-8009-a6f1-9b4cd228a075алено старых замен: {count}", show_alert=True)
     
     # Обновляем список замен
     await show_replacements(callback)
 
 
-@dp.callback_query_handler(lambda c: c.data == "clear_all_replacements")
+@dp.callback_query(F.data == "clear_all_replacements")
 async def clear_all_replacements_handler(callback: types.CallbackQuery):
     await callback.answer()
     
@@ -366,13 +363,13 @@ async def clear_all_replacements_handler(callback: types.CallbackQuery):
     await callback.message.answer("✅ Все замены удалены", reply_markup=get_main_menu())
 
 
-@dp.callback_query_handler(lambda c: c.data == "change_time")
+@dp.callback_query(F.data == "change_time")
 async def change_time(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.answer("⏰ Напишите новое время рассылки в формате HH:MM (например 07:30)")
 
 
-@dp.callback_query_handler(lambda c: c.data == "back_to_menu")
+@dp.callback_query(F.data == "back_to_menu")
 async def back_to_menu(callback: types.CallbackQuery):
     await callback.answer()
     week_type = get_week_type()
@@ -392,5 +389,16 @@ async def on_shutdown(dispatcher):
     print("🛑 Бот остановлен!")
 
 
+async def main():
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+    
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+    
+
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup, on_shutdown=on_shutdown)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Бот выключен")
